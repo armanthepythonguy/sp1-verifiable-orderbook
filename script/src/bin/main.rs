@@ -12,19 +12,12 @@
 
 use alloy_sol_types::SolType;
 use clap::Parser;
-use fibonacci_lib::PublicValuesStruct;
+use fibonacci_lib::{Order, State, OrderType, Trade};
 use sp1_sdk::{include_elf, ProverClient, SP1Stdin};
 use serde::{Serialize, Deserialize};
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
 pub const FIBONACCI_ELF: &[u8] = include_elf!("fibonacci-program");
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct State{
-    pub party_a: u64,
-    pub party_b: u64,
-    pub party_c: u64
-}
 
 
 /// The arguments for the command.
@@ -61,9 +54,9 @@ fn main() {
 
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();
-    stdin.write(&State{party_a:20, party_b:20,party_c:20});
-    stdin.write(&State{party_a:0, party_b:20,party_c:0});
-    stdin.write(&State{party_a:20, party_b:50,party_c:20});
+    stdin.write(&State{pending_ask_orders:vec![], pending_bid_orders: vec![], trades: vec![]});
+    stdin.write(&vec![Order{id:"123".to_string(), order_type:OrderType::Bid, price: 1.05, quantity: 1000}, Order{id:"123".to_string(), order_type:OrderType::Ask, price: 1.05, quantity: 1000}]);
+    stdin.write(&State{pending_ask_orders:vec![], pending_bid_orders: vec![], trades: vec![Trade{id:"123123".to_string(), price: 1.05, quantity: 1000, ask_order:Order{id:"123".to_string(), order_type:OrderType::Ask, price: 1.05, quantity: 1000}, bid_order:Order{id:"123".to_string(), order_type:OrderType::Bid, price: 1.05, quantity: 1000}}]});
     // println!("n: {}", args.n);
 
     if args.execute {
