@@ -8,34 +8,25 @@
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
-use fibonacci_lib::{fibonacci, PublicValuesStruct};
+use fibonacci_lib::{match_order, Order, State, PublicValuesStruct};
 use serde::{Serialize, Deserialize};
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct State{
-    pub party_a: u64,
-    pub party_b: u64,
-    pub party_c: u64
-}
-
 
 pub fn main() {
     // Read an input to the program.
     //
     // Behind the scenes, this compiles down to a custom system call which handles reading inputs
     // from the prover.
-    let mut curr_json: State = sp1_zkvm::io::read();
-    let trans_json : State = sp1_zkvm::io::read();
-    let res_json: State = sp1_zkvm::io::read();
+    let mut curr_state: State = sp1_zkvm::io::read();
+    let transactions : Vec<Order> = sp1_zkvm::io::read();
+    let res_state: State = sp1_zkvm::io::read();
 
-    curr_json.party_a += trans_json.party_a;
-    curr_json.party_b += trans_json.party_b;
-    curr_json.party_c += trans_json.party_c;
-
-    if(curr_json == res_json){
-        sp1_zkvm::io::commit(&res_json);
-    }else{
-        sp1_zkvm::io::commit(&0);
+    for tx in transactions.iter(){
+        curr_state = match_order(curr_state, tx.clone());
     }
 
+    if(res_state == curr_state){
+        sp1_zkvm::io::commit(&true);
+    }else{
+        sp1_zkvm::io::commit(&false);
+    }
 }
