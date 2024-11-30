@@ -12,141 +12,128 @@ sol! {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct State{
+pub struct State {
     pub pending_bid_orders: Vec<Order>,
     pub pending_ask_orders: Vec<Order>,
-    pub trades: Vec<Trade>
+    pub trades: Vec<Trade>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct Trade{
+pub struct Trade {
     pub id: String,
     pub ask_order: Order,
     pub bid_order: Order,
     pub price: f64,
-    pub quantity: u64
+    pub quantity: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct Order{
+pub struct Order {
     pub id: String,
     pub order_type: OrderType,
     pub price: f64,
-    pub quantity: u64
+    pub quantity: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub enum OrderType{
+pub enum OrderType {
     Bid,
-    Ask
+    Ask,
 }
 
-pub fn match_order(mut curr_state: State, mut new_order: Order) -> State{
-
-    if new_order.order_type==OrderType::Ask{
-        let order_found = find_order(curr_state.clone().pending_bid_orders, new_order.clone().price);
-        match order_found{
-            Some(val) => {
-                if(curr_state.pending_bid_orders[val].quantity == new_order.quantity){
-                    let new_trade = Trade{
-                        id: curr_state.pending_bid_orders[val].clone().id+&new_order.id,
-                        ask_order: new_order.clone(),
-                        bid_order: curr_state.pending_bid_orders[val].clone(),
-                        price: new_order.price,
-                        quantity: new_order.quantity
-                    };
-                    curr_state.trades.push(new_trade);
-                    curr_state.pending_bid_orders.remove(val);
-                }else{
-                    if(curr_state.pending_bid_orders[val].quantity > new_order.quantity){
-                        curr_state.pending_bid_orders[val].quantity -= new_order.quantity;
-                        let new_trade = Trade{
-                            id: curr_state.pending_bid_orders[val].clone().id+&new_order.id,
-                            ask_order: new_order.clone(),
-                            bid_order: curr_state.pending_bid_orders[val].clone(),
-                            price: new_order.price,
-                            quantity: new_order.quantity
-                        };
-                        curr_state.trades.push(new_trade);
-                    }else{
-                        let new_trade = Trade{
-                            id: curr_state.pending_bid_orders[val].clone().id+&new_order.id,
-                            ask_order: new_order.clone(),
-                            bid_order: curr_state.pending_bid_orders[val].clone(),
-                            price: new_order.price,
-                            quantity: curr_state.pending_bid_orders[val].quantity
-                        };
-                        curr_state.trades.push(new_trade);
-                        new_order.quantity -= curr_state.pending_bid_orders[val].quantity;
-                        curr_state.pending_ask_orders.push(new_order);
-                        curr_state.pending_ask_orders.sort_by(|a,b| a.price.partial_cmp(&b.price).unwrap_or(Ordering::Equal));
-                        curr_state.pending_bid_orders.remove(val);
-                    }
-                }
-            },
-            None => {
-                curr_state.pending_ask_orders.push(new_order);
-                curr_state.pending_ask_orders.sort_by(|a,b| a.price.partial_cmp(&b.price).unwrap_or(Ordering::Equal));
-            }
+pub fn match_order(mut curr_state: State, mut new_order: Order) -> State {
+    match new_order.order_type {
+        OrderType::Ask => {
+            let mut pending_bid_orders = std::mem::take(&mut curr_state.pending_bid_orders);
+            process_order(
+                &mut curr_state,
+                &mut new_order,
+                &mut pending_bid_orders,
+                OrderType::Ask,
+            );
+            curr_state.pending_bid_orders = pending_bid_orders;
         }
-    }else{
-        let order_found = find_order(curr_state.pending_ask_orders.clone(), new_order.clone().price);
-        match order_found{
-            Some(val) => {
-                if(curr_state.pending_ask_orders[val].clone().quantity == new_order.clone().quantity){
-                    let new_trade = Trade{
-                        id: new_order.clone().id+&curr_state.pending_bid_orders[val].id,
-                        ask_order: curr_state.pending_ask_orders[val].clone(),
-                        bid_order: new_order.clone(),
-                        price: new_order.price,
-                        quantity: new_order.quantity
-                    };
-                    curr_state.trades.push(new_trade);
-                    curr_state.pending_ask_orders.remove(val);
-                }else{
-                    if(curr_state.pending_ask_orders[val].quantity > new_order.quantity){
-                        curr_state.pending_ask_orders[val].quantity -= new_order.quantity;
-                        let new_trade = Trade{
-                            id: curr_state.pending_bid_orders[val].clone().id+&new_order.id,
-                            ask_order: curr_state.pending_ask_orders[val].clone(),
-                            bid_order: new_order.clone(),
-                            price: new_order.price,
-                            quantity: new_order.quantity
-                        };
-                        curr_state.trades.push(new_trade);
-                    }else{
-                        let new_trade = Trade{
-                            id: curr_state.pending_bid_orders[val].clone().id+&new_order.id,
-                            ask_order: curr_state.pending_ask_orders[val].clone(),
-                            bid_order: new_order.clone(),
-                            price: new_order.price,
-                            quantity: curr_state.pending_ask_orders[val].quantity
-                        };
-                        curr_state.trades.push(new_trade);
-                        new_order.quantity -= curr_state.pending_ask_orders[val].quantity;
-                        curr_state.pending_bid_orders.push(new_order);
-                        curr_state.pending_bid_orders.sort_by(|a,b| b.price.partial_cmp(&a.price).unwrap_or(Ordering::Equal));
-                        curr_state.pending_ask_orders.remove(val);
-                    }
-                }
-            },
-            None => {
-                curr_state.pending_bid_orders.push(new_order);
-                curr_state.pending_bid_orders.sort_by(|a,b| b.price.partial_cmp(&a.price).unwrap_or(Ordering::Equal));
-            }
+        OrderType::Bid => {
+            let mut pending_ask_orders = std::mem::take(&mut curr_state.pending_ask_orders);
+            process_order(
+                &mut curr_state,
+                &mut new_order,
+                &mut pending_ask_orders,
+                OrderType::Bid,
+            );
+            curr_state.pending_ask_orders = pending_ask_orders;
         }
     }
 
-    return curr_state;
+    curr_state
 }
 
-fn find_order(orders: Vec<Order>, price: f64) -> Option<usize>{
+fn process_order(
+    state: &mut State,
+    new_order: &mut Order,
+    matching_orders: &mut Vec<Order>,
+    order_type: OrderType,
+) {
+    if let Some(index) = find_order(matching_orders, new_order.price) {
+        let matched_order = &mut matching_orders[index];
+        let trade_quantity = matched_order.quantity.min(new_order.quantity);
 
-    for i in 0..orders.len(){
-        if orders[i].price == price {
+        let trade = Trade {
+            id: format!("{}-{}", matched_order.id, new_order.id),
+            ask_order: if order_type == OrderType::Ask {
+                new_order.clone()
+            } else {
+                matched_order.clone()
+            },
+            bid_order: if order_type == OrderType::Bid {
+                new_order.clone()
+            } else {
+                matched_order.clone()
+            },
+            price: new_order.price,
+            quantity: trade_quantity,
+        };
+
+        state.trades.push(trade);
+
+        if matched_order.quantity > trade_quantity {
+            matched_order.quantity -= trade_quantity;
+        } else {
+            matching_orders.remove(index);
+        }
+
+        if new_order.quantity > trade_quantity {
+            new_order.quantity -= trade_quantity;
+            if order_type == OrderType::Ask {
+                state.pending_ask_orders.push(new_order.clone());
+                state.pending_ask_orders
+                    .sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap());
+            } else {
+                state.pending_bid_orders.push(new_order.clone());
+                state.pending_bid_orders
+                    .sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap());
+            }
+        }
+    } else {
+        if order_type == OrderType::Ask {
+            state.pending_ask_orders.push(new_order.clone());
+            state.pending_ask_orders
+                .sort_by(|a, b| a.price.partial_cmp(&b.price).unwrap());
+        } else {
+            state.pending_bid_orders.push(new_order.clone());
+            state.pending_bid_orders
+                .sort_by(|a, b| b.price.partial_cmp(&a.price).unwrap());
+        }
+    }
+}
+
+
+fn find_order(orders: &Vec<Order>, price: f64) -> Option<usize> {
+    for (i, order) in orders.iter().enumerate() {
+        if order.price == price {
             return Some(i);
         }
-        if(orders[i].price > price){
+        if order.price > price {
             return None;
         }
     }
