@@ -178,6 +178,43 @@ impl OrderbookMerkleTree {
         let proof = self.collect_proof(&key);
         (proof, value, key)
     }
+
+    pub fn verify_proof(
+        root: &[u8],
+        proof: &[Vec<u8>],
+        user_address: &[u8],
+        token_address: &[u8],
+        amount: u128
+    ) -> bool {
+        // Create leaf node hash
+        let mut hasher = Keccak256::new();
+        hasher.update(user_address);
+        hasher.update(token_address);
+        let key = hasher.finalize().to_vec();
+        
+        // Hash the leaf node with its value
+        let mut hasher = Keccak256::new();
+        hasher.update(&key);
+        hasher.update(&amount.to_be_bytes());
+        let mut current_hash = hasher.finalize().to_vec();
+
+        // Traverse up the tree using the proof
+        for sibling in proof {
+            let mut hasher = Keccak256::new();
+            // Sort the hashes to ensure consistent ordering
+            if current_hash <= *sibling {
+                hasher.update(&current_hash);
+                hasher.update(sibling);
+            } else {
+                hasher.update(sibling);
+                hasher.update(&current_hash);
+            }
+            current_hash = hasher.finalize().to_vec();
+        }
+
+        // Compare with provided root
+        current_hash == root
+    }
 }
 
 pub fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
@@ -204,12 +241,18 @@ pub fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, String> {
 
 fn main(){
     let mut tree = OrderbookMerkleTree::new();
-let user = hex_to_bytes("1234567890123456789012345678901234567890").unwrap();
-let token = hex_to_bytes("0987654321098765432109876543210987654321").unwrap();
+    println!("{:?}", tree.get_root());
+    let user = hex_to_bytes("1234567890123456789012345678901234567890").unwrap();
+    let token = hex_to_bytes("0987654321098765432109876543210987654321").unwrap();
+    let token2 = hex_to_bytes("0987654321098765432109876541210987654321").unwrap();
+    let token3 = hex_to_bytes("0987654321098765432109876544210987654321").unwrap();
 
-tree.update_balance(&user, &token, 1000);
-let (proof, value, _) = tree.generate_proof(&user, &token);
-println!("Proof length: {:?}", proof);
+    tree.update_balance(&user, &token, 1000);
+    tree.update_balance(&user, &token2, 1000);
+    tree.update_balance(&user, &token3, 1000);
+    println!("{:?}", tree.get_root());
+    let (proof, value, _) = tree.generate_proof(&user, &token);
+    println!("Proof length: {:?}, {:?}", proof, value);
 }
 
 #[cfg(test)]
@@ -273,5 +316,108 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    #[test]
+    fn test_proof_verification() {
+        let mut tree = OrderbookMerkleTree::new();
+        
+        // Create test addresses
+        let user1 = hex_to_bytes("1111111111111111111111111111111111111111").unwrap();
+        let user2 = hex_to_bytes("2222222222222222222222222222222222222222").unwrap();
+        let user3 = hex_to_bytes("3333333333333333333333333333333333333333").unwrap();
+        let token = hex_to_bytes("4444444444444444444444444444444444444444").unwrap();
+        
+        // Update balances
+        tree.update_balance(&user1, &token, 1000);
+        tree.update_balance(&user2, &token, 2000);
+        tree.update_balance(&user3, &token, 3000);
+        
+        // Get root
+        let root = tree.get_root();
+        
+        // Generate proof for user2
+        let (proof, value, _) = tree.generate_proof(&user2, &token);
+        
+        // Verify the proof
+        assert!(OrderbookMerkleTree::verify_proof(
+            &root,
+            &proof,
+            &user2,
+            &token,
+            value
+        ), "Proof should verify successfully");
+        
+        // Test with wrong amount
+        assert!(!OrderbookMerkleTree::verify_proof(
+            &root,
+            &proof,
+            &user2,
+            &token,
+            value + 1
+        ), "Proof should fail with wrong amount");
+        
+        // Test with wrong user
+        assert!(!OrderbookMerkleTree::verify_proof(
+            &root,
+            &proof,
+            &user1,
+            &token,
+            value
+        ), "Proof should fail with wrong user");
+        
+        // Test with wrong token
+        let wrong_token = hex_to_bytes("5555555555555555555555555555555555555555").unwrap();
+        assert!(!OrderbookMerkleTree::verify_proof(
+            &root,
+            &proof,
+            &user2,
+            &wrong_token,
+            value
+        ), "Proof should fail with wrong token");
+    }
+
+    #[test]
+    fn test_comprehensive_verification() {
+        let mut tree = OrderbookMerkleTree::new();
+        
+        // Create multiple users and tokens
+        let users: Vec<Vec<u8>> = (0..4).map(|i| {
+            let mut addr = vec![0u8; 20];
+            addr[0] = i as u8 + 1;
+            addr
+        }).collect();
+        
+        let token = vec![0u8; 20];
+        
+        // Update balances
+        for (i, user) in users.iter().enumerate() {
+            tree.update_balance(user, &token, (1000 * (i + 1)) as u128);
+        }
+        
+        let root = tree.get_root();
+        
+        // Verify proofs for all users
+        for (i, user) in users.iter().enumerate() {
+            let (proof, value, _) = tree.generate_proof(user, &token);
+            
+            // Correct proof should verify
+            assert!(OrderbookMerkleTree::verify_proof(
+                &root,
+                &proof,
+                user,
+                &token,
+                value
+            ), "Proof should verify for user {}", i);
+            
+            // Modified value should fail
+            assert!(!OrderbookMerkleTree::verify_proof(
+                &root,
+                &proof,
+                user,
+                &token,
+                value + 1
+            ), "Proof should fail with modified value for user {}", i);
+        }
     }
 }
